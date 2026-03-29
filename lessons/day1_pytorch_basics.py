@@ -1,7 +1,7 @@
 # =============================================================
 # DAY 1 上午：PyTorch 核心概念（约3小时）
-# 文件：day1_pytorch_basics.py
-# 运行：python day1_pytorch_basics.py
+# 文件：lessons/day1_pytorch_basics.py
+# 运行：python lessons/day1_pytorch_basics.py
 # =============================================================
 
 import torch
@@ -11,6 +11,12 @@ from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import numpy as np
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DAY1_ARTIFACT_DIR = REPO_ROOT / "artifacts" / "day1"
+DAY1_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+LOSS_CURVE_PATH = DAY1_ARTIFACT_DIR / "day1_loss_curve.png"
 
 print("=" * 50)
 print("PART 1: 张量（Tensor）基础")
@@ -147,6 +153,6 @@ plt.ylabel("Cross-Entropy Loss")
 plt.title("Training Loss — Iris Classifier")
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
-plt.savefig("day1_loss_curve.png", dpi=120)
-print("\n图表已保存: day1_loss_curve.png")
+plt.savefig(LOSS_CURVE_PATH, dpi=120)
+print(f"\n图表已保存: {LOSS_CURVE_PATH}")
 print("\n✓ Day 1 上午完成！你已经掌握: 张量、自动求导、训练循环")

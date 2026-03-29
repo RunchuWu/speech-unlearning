@@ -1,7 +1,7 @@
 # =============================================================
 # DAY 1 下午：音频处理基础（约3小时）
-# 文件：day1_audio_basics.py
-# 运行：python day1_audio_basics.py
+# 文件：lessons/day1_audio_basics.py
+# 运行：python lessons/day1_audio_basics.py
 # =============================================================
 
 import torch
@@ -12,6 +12,11 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import os
 import wave
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DAY1_ARTIFACT_DIR = REPO_ROOT / "artifacts" / "day1"
+DAY1_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
 print("=" * 50)
 print("PART 1: 准备测试音频 + 读取")
@@ -22,7 +27,8 @@ SPEECH_URLS = [
     "https://download.pytorch.org/torchaudio/tutorial-assets/steam-train-whistle-daniel_simon.wav",
     "https://download.pytorch.org/tutorial/steam-train-whistle-daniel_simon.wav",
 ]
-SPEECH_FILE = "test_audio.wav"
+SPEECH_FILE = DAY1_ARTIFACT_DIR / "test_audio.wav"
+FEATURE_FIGURE_PATH = DAY1_ARTIFACT_DIR / "day1_audio_features.png"
 
 def load_audio_file(filepath):
     """
@@ -197,8 +203,8 @@ ax3.set_title("③ MFCC（40维系数）— 更紧凑的特征表示", fontsize=
 ax3.set_xlabel("Time (s)")
 ax3.set_ylabel("MFCC coefficient")
 
-plt.savefig("day1_audio_features.png", dpi=120, bbox_inches='tight')
-print("图表已保存: day1_audio_features.png")
+plt.savefig(FEATURE_FIGURE_PATH, dpi=120, bbox_inches='tight')
+print(f"图表已保存: {FEATURE_FIGURE_PATH}")
 
 print("\n" + "=" * 50)
 print("PART 4: 数据预处理——统一长度，准备喂给模型")

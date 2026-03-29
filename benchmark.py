@@ -43,7 +43,10 @@ except ImportError as exc:
 
 
 SEED = 42
-DATA_ROOT = Path("data")
+REPO_ROOT = Path(__file__).resolve().parent
+ARTIFACT_ROOT = REPO_ROOT / "artifacts"
+BENCHMARK_ARTIFACT_DIR = ARTIFACT_ROOT / "benchmark"
+DATA_ROOT = REPO_ROOT / "data"
 LIBRISPEECH_SPLIT = "test-clean"
 SPEAKER_IDS = [1089, 2094, 3570, 4077, 5142]
 FORGET_SPEAKER_ID = 1089
@@ -75,10 +78,10 @@ GA_LR = 1e-4
 RL_EPOCHS = 20
 RL_LR = 5e-5
 
-ORIGINAL_CHECKPOINT = Path("model_original.pt")
-RETRAIN_CHECKPOINT = Path("model_retrain.pt")
-RESULTS_FIGURE = Path("results.png")
-RESULTS_CSV = Path("results_summary.csv")
+ORIGINAL_CHECKPOINT = BENCHMARK_ARTIFACT_DIR / "model_original.pt"
+RETRAIN_CHECKPOINT = BENCHMARK_ARTIFACT_DIR / "model_retrain.pt"
+RESULTS_FIGURE = BENCHMARK_ARTIFACT_DIR / "results.png"
+RESULTS_CSV = BENCHMARK_ARTIFACT_DIR / "results_summary.csv"
 
 METHOD_NAMES = [
     "No Unlearning",
@@ -201,7 +204,6 @@ def ensure_torchaudio_backend() -> str:
     available_backends = torchaudio.list_audio_backends()
     for backend_name in ["soundfile", "ffmpeg", "sox_io"]:
         if backend_name in available_backends:
-            torchaudio.set_audio_backend(backend_name)
             return backend_name
 
     raise RuntimeError(
@@ -920,6 +922,7 @@ def main() -> None:
     """Run the full benchmark end to end so the demo is reproducible from one script."""
 
     set_seed(SEED)
+    BENCHMARK_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     device = select_device()
     audio_backend = ensure_torchaudio_backend()
     print(f"[setup] device={device}")

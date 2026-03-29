@@ -1,7 +1,7 @@
 # =============================================================
 # DAY 2：说话人分类 + 遗忘实验（约6小时，完整项目）
-# 文件：day2_speaker_unlearning.py
-# 运行：python day2_speaker_unlearning.py
+# 文件：lessons/day2_speaker_unlearning.py
+# 运行：python lessons/day2_speaker_unlearning.py
 #
 # 数据来源：torchaudio 内置数据集（自动下载，约350MB）
 # 5位说话人，每人50句，共250条音频
@@ -18,6 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import os
 import random
+from pathlib import Path
 
 # ─────────────────────────────────────────
 # 0. 全局设置
@@ -29,6 +30,13 @@ np.random.seed(42)
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 # Mac M1/M2 有 MPS 加速；没有就用 CPU，50条数据 CPU 完全够
 print(f"使用设备: {DEVICE}")
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_ROOT = REPO_ROOT / "data"
+DAY2_ARTIFACT_DIR = REPO_ROOT / "artifacts" / "day2"
+DAY2_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_PATH = DAY2_ARTIFACT_DIR / "model_before_unlearning.pt"
+RESULT_FIGURE_PATH = DAY2_ARTIFACT_DIR / "day2_unlearning_results.png"
 
 # 说话人设置
 # 从 LibriSpeech test-clean 里选5个说话人 ID
@@ -51,7 +59,7 @@ class SpeakerDataset(Dataset):
     从 LibriSpeech 加载指定说话人的音频
     标签: speaker_id → 0,1,2,3,4 的整数
     """
-    def __init__(self, speaker_ids, samples_per_speaker, data_root="./data"):
+    def __init__(self, speaker_ids, samples_per_speaker, data_root=DATA_ROOT):
         self.samples = []      # (waveform_tensor, label)
         self.speaker2label = {spk: i for i, spk in enumerate(speaker_ids)}
         os.makedirs(data_root, exist_ok=True)
@@ -279,7 +287,7 @@ def main():
                   f"val_acc={val_acc*100:.1f}%")
 
     # 保存初始模型（用于对比）
-    torch.save(model.state_dict(), "model_before_unlearning.pt")
+    torch.save(model.state_dict(), MODEL_PATH)
 
     overall_before, per_cls_before, preds_b, labels_b = evaluate(model, test_loader, DEVICE)
     print(f"\n基础模型测试准确率: {overall_before*100:.1f}%")
@@ -296,7 +304,7 @@ def main():
     print("=" * 50)
 
     model_ga = TinySpeakerCNN(n_speakers=5).to(DEVICE)
-    model_ga.load_state_dict(torch.load("model_before_unlearning.pt", weights_only=True))
+    model_ga.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
 
     optimizer_ga = torch.optim.SGD(model_ga.parameters(), lr=1e-4)
     FORGET_EPOCHS = 20
@@ -341,7 +349,7 @@ def main():
     print("=" * 50)
 
     model_rl = TinySpeakerCNN(n_speakers=5).to(DEVICE)
-    model_rl.load_state_dict(torch.load("model_before_unlearning.pt", weights_only=True))
+    model_rl.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
 
     optimizer_rl = torch.optim.Adam(model_rl.parameters(), lr=5e-5)
     forget_lbl = full_dataset.speaker2label[FORGET_SPEAKER]
@@ -479,8 +487,8 @@ def main():
             cell.set_facecolor('#f0f0f8')
     ax6.set_title("⑥ 方法对比总结", fontsize=11, pad=10)
 
-    plt.savefig("day2_unlearning_results.png", dpi=130, bbox_inches='tight')
-    print("结果图表已保存: day2_unlearning_results.png")
+    plt.savefig(RESULT_FIGURE_PATH, dpi=130, bbox_inches='tight')
+    print(f"结果图表已保存: {RESULT_FIGURE_PATH}")
 
     # ── 4-6. 终端打印总结 ──────────────────
     print("\n" + "=" * 50)
