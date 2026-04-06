@@ -82,6 +82,8 @@ ORIGINAL_CHECKPOINT = BENCHMARK_ARTIFACT_DIR / "model_original.pt"
 RETRAIN_CHECKPOINT = BENCHMARK_ARTIFACT_DIR / "model_retrain.pt"
 RESULTS_FIGURE = BENCHMARK_ARTIFACT_DIR / "results.png"
 RESULTS_CSV = BENCHMARK_ARTIFACT_DIR / "results_summary.csv"
+GA_STEPWISE_FIGURE = BENCHMARK_ARTIFACT_DIR / "ga_stepwise.png"
+GA_STEPWISE_CSV = BENCHMARK_ARTIFACT_DIR / "ga_stepwise.csv"
 
 METHOD_NAMES = [
     "No Unlearning",
@@ -590,7 +592,12 @@ def unlearn_gradient_ascent(
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=config["lr"])
     model.to(device)
-    history = {"forget_objective": [], "retain_loss": []}
+    history = {"epoch": [0], "forget_objective": [float("nan")], "retain_loss": [float("nan")]}
+    analysis_loaders = config.get("analysis_loaders")
+    if analysis_loaders is not None:
+        baseline_snapshot = collect_unlearning_snapshot(model, analysis_loaders, device)
+        append_snapshot(history, "after_forget_phase", baseline_snapshot)
+        append_snapshot(history, "after_retain_phase", baseline_snapshot)
 
     for epoch in range(1, int(config["epochs"]) + 1):
         model.train()
@@ -609,6 +616,17 @@ def unlearn_gradient_ascent(
             forget_objective += loss.item() * labels.size(0)
             forget_total += labels.size(0)
 
+        history["epoch"].append(epoch)
+        history["forget_objective"].append(forget_objective / forget_total)
+        history["retain_loss"].append(float("nan"))
+        if analysis_loaders is not None:
+            append_snapshot(
+                history,
+                "after_forget_phase",
+                collect_unlearning_snapshot(model, analysis_loaders, device),
+            )
+            forget_test_after_ascent = history["after_forget_phase_forget_test_acc"][-1]
+
         for features, labels in retain_loader:
             features = features.to(device)
             labels = labels.to(device)
@@ -619,14 +637,27 @@ def unlearn_gradient_ascent(
             retain_loss += loss.item() * labels.size(0)
             retain_total += labels.size(0)
 
-        history["forget_objective"].append(forget_objective / forget_total)
-        history["retain_loss"].append(retain_loss / retain_total)
+        history["retain_loss"][-1] = retain_loss / retain_total
+        if analysis_loaders is not None:
+            append_snapshot(
+                history,
+                "after_retain_phase",
+                collect_unlearning_snapshot(model, analysis_loaders, device),
+            )
 
         if epoch == 1 or epoch % 5 == 0 or epoch == int(config["epochs"]):
-            print(
+            message = (
                 f"[unlearn:GA] epoch {epoch:02d}/{config['epochs']} "
-                f"forget_ce={history['forget_objective'][-1]:.4f} retain_ce={history['retain_loss'][-1]:.4f}"
+                f"forget_ce={history['forget_objective'][-1]:.4f} "
+                f"retain_ce={history['retain_loss'][-1]:.4f}"
             )
+            if analysis_loaders is not None:
+                message += (
+                    f" forget_test(after_ascent)={forget_test_after_ascent:.3f} "
+                    f"forget_test(after_repair)={history['after_retain_phase_forget_test_acc'][-1]:.3f} "
+                    f"retain_test(after_repair)={history['after_retain_phase_retain_test_acc'][-1]:.3f}"
+                )
+            print(message)
 
     setattr(model, "unlearning_history", history)
     return model
@@ -644,7 +675,12 @@ def unlearn_random_label(
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
     model.to(device)
-    history = {"forget_wrong_loss": [], "retain_loss": []}
+    history = {"epoch": [0], "forget_wrong_loss": [float("nan")], "retain_loss": [float("nan")]}
+    analysis_loaders = config.get("analysis_loaders")
+    if analysis_loaders is not None:
+        baseline_snapshot = collect_unlearning_snapshot(model, analysis_loaders, device)
+        append_snapshot(history, "after_forget_phase", baseline_snapshot)
+        append_snapshot(history, "after_retain_phase", baseline_snapshot)
 
     for epoch in range(1, int(config["epochs"]) + 1):
         model.train()
@@ -664,6 +700,17 @@ def unlearn_random_label(
             forget_wrong_loss += loss.item() * labels.size(0)
             forget_total += labels.size(0)
 
+        history["epoch"].append(epoch)
+        history["forget_wrong_loss"].append(forget_wrong_loss / forget_total)
+        history["retain_loss"].append(float("nan"))
+        if analysis_loaders is not None:
+            append_snapshot(
+                history,
+                "after_forget_phase",
+                collect_unlearning_snapshot(model, analysis_loaders, device),
+            )
+            forget_test_after_wrong_label = history["after_forget_phase_forget_test_acc"][-1]
+
         for features, labels in retain_loader:
             features = features.to(device)
             labels = labels.to(device)
@@ -674,14 +721,26 @@ def unlearn_random_label(
             retain_loss += loss.item() * labels.size(0)
             retain_total += labels.size(0)
 
-        history["forget_wrong_loss"].append(forget_wrong_loss / forget_total)
-        history["retain_loss"].append(retain_loss / retain_total)
+        history["retain_loss"][-1] = retain_loss / retain_total
+        if analysis_loaders is not None:
+            append_snapshot(
+                history,
+                "after_retain_phase",
+                collect_unlearning_snapshot(model, analysis_loaders, device),
+            )
 
         if epoch == 1 or epoch % 5 == 0 or epoch == int(config["epochs"]):
-            print(
+            message = (
                 f"[unlearn:RL] epoch {epoch:02d}/{config['epochs']} "
                 f"forget_wrong_ce={history['forget_wrong_loss'][-1]:.4f} retain_ce={history['retain_loss'][-1]:.4f}"
             )
+            if analysis_loaders is not None:
+                message += (
+                    f" forget_test(after_wrong_label)={forget_test_after_wrong_label:.3f} "
+                    f"forget_test(after_repair)={history['after_retain_phase_forget_test_acc'][-1]:.3f} "
+                    f"retain_test(after_repair)={history['after_retain_phase_retain_test_acc'][-1]:.3f}"
+                )
+            print(message)
 
     setattr(model, "unlearning_history", history)
     return model
@@ -729,6 +788,37 @@ def collect_per_sample_losses(
             all_losses.append(losses.cpu())
 
     return torch.cat(all_losses).numpy()
+
+
+def mean_cross_entropy(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
+    """Return mean cross-entropy on a split so unlearning diagnostics can track confidence changes."""
+
+    losses = collect_per_sample_losses(model, loader, device)
+    return float(losses.mean())
+
+
+def collect_unlearning_snapshot(
+    model: nn.Module,
+    analysis_loaders: Dict[str, DataLoader],
+    device: torch.device,
+) -> Dict[str, float]:
+    """Collect split-wise accuracy and loss so unlearning dynamics can be inspected over time."""
+
+    return {
+        "forget_train_acc": evaluate_accuracy(model, analysis_loaders["forget_train"], device),
+        "forget_test_acc": evaluate_accuracy(model, analysis_loaders["forget_test"], device),
+        "retain_test_acc": evaluate_accuracy(model, analysis_loaders["retain_test"], device),
+        "full_test_acc": evaluate_accuracy(model, analysis_loaders["full_test"], device),
+        "forget_train_ce": mean_cross_entropy(model, analysis_loaders["forget_train"], device),
+        "forget_test_ce": mean_cross_entropy(model, analysis_loaders["forget_test"], device),
+    }
+
+
+def append_snapshot(history: Dict[str, List[float]], prefix: str, snapshot: Dict[str, float]) -> None:
+    """Append one diagnostic snapshot under a named phase without hardcoding every metric key."""
+
+    for metric_name, metric_value in snapshot.items():
+        history.setdefault(f"{prefix}_{metric_name}", []).append(metric_value)
 
 
 def collect_mia_scores(
@@ -918,6 +1008,144 @@ def plot_results(
     plt.close(fig)
 
 
+def save_history_table(history: Dict[str, List[float]], output_path: Path) -> None:
+    """Persist unlearning history so diagnostics can be inspected numerically outside the plot."""
+
+    pd.DataFrame(history).to_csv(output_path, index=False)
+
+
+def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None:
+    """Plot GA before/after-repair trajectories so failed forgetting can be diagnosed directly."""
+
+    epochs = np.array(history["epoch"], dtype=float)
+    objective_epochs = epochs[1:]
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    fig.suptitle("Gradient Ascent Step-by-Step Diagnostics", fontsize=15, fontweight="bold")
+
+    axes[0, 0].plot(objective_epochs, history["forget_objective"][1:], color="#d62728", linewidth=2, label="Forget CE")
+    axes[0, 0].plot(objective_epochs, history["retain_loss"][1:], color="#1f77b4", linewidth=2, label="Retain Repair CE")
+    axes[0, 0].set_title("Optimization Objectives")
+    axes[0, 0].set_xlabel("Epoch")
+    axes[0, 0].set_ylabel("Cross-Entropy")
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 0].legend()
+
+    axes[0, 1].plot(
+        epochs,
+        history["after_forget_phase_forget_train_acc"],
+        color="#d62728",
+        linestyle="--",
+        linewidth=2,
+        label="Forget Train Acc after Ascent",
+    )
+    axes[0, 1].plot(
+        epochs,
+        history["after_retain_phase_forget_train_acc"],
+        color="#d62728",
+        linewidth=2,
+        label="Forget Train Acc after Repair",
+    )
+    axes[0, 1].plot(
+        epochs,
+        history["after_forget_phase_forget_test_acc"],
+        color="#ff7f0e",
+        linestyle="--",
+        linewidth=2,
+        label="Forget Test Acc after Ascent",
+    )
+    axes[0, 1].plot(
+        epochs,
+        history["after_retain_phase_forget_test_acc"],
+        color="#ff7f0e",
+        linewidth=2,
+        label="Forget Test Acc after Repair",
+    )
+    axes[0, 1].set_title("Forget Accuracy Trajectory")
+    axes[0, 1].set_xlabel("Epoch")
+    axes[0, 1].set_ylabel("Accuracy")
+    axes[0, 1].set_ylim(0.0, 1.05)
+    axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].legend(fontsize=8)
+
+    axes[1, 0].plot(
+        epochs,
+        history["after_forget_phase_forget_train_ce"],
+        color="#d62728",
+        linestyle="--",
+        linewidth=2,
+        label="Forget Train CE after Ascent",
+    )
+    axes[1, 0].plot(
+        epochs,
+        history["after_retain_phase_forget_train_ce"],
+        color="#d62728",
+        linewidth=2,
+        label="Forget Train CE after Repair",
+    )
+    axes[1, 0].plot(
+        epochs,
+        history["after_forget_phase_forget_test_ce"],
+        color="#ff7f0e",
+        linestyle="--",
+        linewidth=2,
+        label="Forget Test CE after Ascent",
+    )
+    axes[1, 0].plot(
+        epochs,
+        history["after_retain_phase_forget_test_ce"],
+        color="#ff7f0e",
+        linewidth=2,
+        label="Forget Test CE after Repair",
+    )
+    axes[1, 0].set_title("Forget Cross-Entropy Trajectory")
+    axes[1, 0].set_xlabel("Epoch")
+    axes[1, 0].set_ylabel("Cross-Entropy")
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].legend(fontsize=8)
+
+    axes[1, 1].plot(
+        epochs,
+        history["after_forget_phase_retain_test_acc"],
+        color="#1f77b4",
+        linestyle="--",
+        linewidth=2,
+        label="Retain Test Acc after Ascent",
+    )
+    axes[1, 1].plot(
+        epochs,
+        history["after_retain_phase_retain_test_acc"],
+        color="#1f77b4",
+        linewidth=2,
+        label="Retain Test Acc after Repair",
+    )
+    axes[1, 1].plot(
+        epochs,
+        history["after_forget_phase_full_test_acc"],
+        color="#2ca02c",
+        linestyle="--",
+        linewidth=2,
+        label="Full Test Acc after Ascent",
+    )
+    axes[1, 1].plot(
+        epochs,
+        history["after_retain_phase_full_test_acc"],
+        color="#2ca02c",
+        linewidth=2,
+        label="Full Test Acc after Repair",
+    )
+    axes[1, 1].set_title("Retain / Overall Utility")
+    axes[1, 1].set_xlabel("Epoch")
+    axes[1, 1].set_ylabel("Accuracy")
+    axes[1, 1].set_ylim(0.0, 1.05)
+    axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].legend(fontsize=8)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main() -> None:
     """Run the full benchmark end to end so the demo is reproducible from one script."""
 
@@ -958,6 +1186,12 @@ def main() -> None:
     retain_test_loader = make_loader(scenario.retain_test, shuffle=False)
     full_test_loader = make_loader(scenario.full_test, shuffle=False)
     mia_holdout_loader = make_loader(scenario.mia_holdout, shuffle=False)
+    analysis_loaders = {
+        "forget_train": forget_train_eval_loader,
+        "forget_test": forget_test_loader,
+        "retain_test": retain_test_loader,
+        "full_test": full_test_loader,
+    }
 
     original_model = TinySpeakerCNN()
     original_history = train_supervised(
@@ -984,7 +1218,12 @@ def main() -> None:
         ga_model,
         forget_train_loader,
         retain_train_loader,
-        config={"epochs": GA_EPOCHS, "lr": GA_LR, "device": device},
+        config={
+            "epochs": GA_EPOCHS,
+            "lr": GA_LR,
+            "device": device,
+            "analysis_loaders": analysis_loaders,
+        },
     )
 
     rl_model = clone_model(original_model)
@@ -992,7 +1231,13 @@ def main() -> None:
         rl_model,
         forget_train_loader,
         retain_train_loader,
-        config={"epochs": RL_EPOCHS, "lr": RL_LR, "device": device, "num_classes": len(SPEAKER_IDS)},
+        config={
+            "epochs": RL_EPOCHS,
+            "lr": RL_LR,
+            "device": device,
+            "num_classes": len(SPEAKER_IDS),
+            "analysis_loaders": analysis_loaders,
+        },
     )
 
     models = {
@@ -1042,11 +1287,15 @@ def main() -> None:
         mia_payloads=mia_payloads,
         output_path=RESULTS_FIGURE,
     )
+    save_history_table(getattr(ga_model, "unlearning_history"), GA_STEPWISE_CSV)
+    plot_ga_stepwise(getattr(ga_model, "unlearning_history"), GA_STEPWISE_FIGURE)
 
     print(f"\n[artifacts] saved {ORIGINAL_CHECKPOINT}")
     print(f"[artifacts] saved {RETRAIN_CHECKPOINT}")
     print(f"[artifacts] saved {RESULTS_CSV}")
     print(f"[artifacts] saved {RESULTS_FIGURE}")
+    print(f"[artifacts] saved {GA_STEPWISE_CSV}")
+    print(f"[artifacts] saved {GA_STEPWISE_FIGURE}")
 
 
 if __name__ == "__main__":
