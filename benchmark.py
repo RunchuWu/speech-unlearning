@@ -84,6 +84,8 @@ RESULTS_FIGURE = BENCHMARK_ARTIFACT_DIR / "results.png"
 RESULTS_CSV = BENCHMARK_ARTIFACT_DIR / "results_summary.csv"
 GA_STEPWISE_FIGURE = BENCHMARK_ARTIFACT_DIR / "ga_stepwise.png"
 GA_STEPWISE_CSV = BENCHMARK_ARTIFACT_DIR / "ga_stepwise.csv"
+RL_STEPWISE_FIGURE = BENCHMARK_ARTIFACT_DIR / "rl_stepwise.png"
+RL_STEPWISE_CSV = BENCHMARK_ARTIFACT_DIR / "rl_stepwise.csv"
 
 METHOD_NAMES = [
     "No Unlearning",
@@ -1014,16 +1016,23 @@ def save_history_table(history: Dict[str, List[float]], output_path: Path) -> No
     pd.DataFrame(history).to_csv(output_path, index=False)
 
 
-def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None:
-    """Plot GA before/after-repair trajectories so failed forgetting can be diagnosed directly."""
+def plot_stepwise_diagnostics(
+    history: Dict[str, List[float]],
+    output_path: Path,
+    method_title: str,
+    phase_name: str,
+    objective_key: str,
+    objective_label: str,
+) -> None:
+    """Plot per-epoch forgetting/repair diagnostics for any unlearning method using the shared history schema."""
 
     epochs = np.array(history["epoch"], dtype=float)
     objective_epochs = epochs[1:]
 
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle("Gradient Ascent Step-by-Step Diagnostics", fontsize=15, fontweight="bold")
+    fig.suptitle(f"{method_title} Step-by-Step Diagnostics", fontsize=15, fontweight="bold")
 
-    axes[0, 0].plot(objective_epochs, history["forget_objective"][1:], color="#d62728", linewidth=2, label="Forget CE")
+    axes[0, 0].plot(objective_epochs, history[objective_key][1:], color="#d62728", linewidth=2, label=objective_label)
     axes[0, 0].plot(objective_epochs, history["retain_loss"][1:], color="#1f77b4", linewidth=2, label="Retain Repair CE")
     axes[0, 0].set_title("Optimization Objectives")
     axes[0, 0].set_xlabel("Epoch")
@@ -1037,7 +1046,7 @@ def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None
         color="#d62728",
         linestyle="--",
         linewidth=2,
-        label="Forget Train Acc after Ascent",
+        label=f"Forget Train Acc after {phase_name}",
     )
     axes[0, 1].plot(
         epochs,
@@ -1052,7 +1061,7 @@ def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None
         color="#ff7f0e",
         linestyle="--",
         linewidth=2,
-        label="Forget Test Acc after Ascent",
+        label=f"Forget Test Acc after {phase_name}",
     )
     axes[0, 1].plot(
         epochs,
@@ -1074,7 +1083,7 @@ def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None
         color="#d62728",
         linestyle="--",
         linewidth=2,
-        label="Forget Train CE after Ascent",
+        label=f"Forget Train CE after {phase_name}",
     )
     axes[1, 0].plot(
         epochs,
@@ -1089,7 +1098,7 @@ def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None
         color="#ff7f0e",
         linestyle="--",
         linewidth=2,
-        label="Forget Test CE after Ascent",
+        label=f"Forget Test CE after {phase_name}",
     )
     axes[1, 0].plot(
         epochs,
@@ -1110,7 +1119,7 @@ def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None
         color="#1f77b4",
         linestyle="--",
         linewidth=2,
-        label="Retain Test Acc after Ascent",
+        label=f"Retain Test Acc after {phase_name}",
     )
     axes[1, 1].plot(
         epochs,
@@ -1125,7 +1134,7 @@ def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None
         color="#2ca02c",
         linestyle="--",
         linewidth=2,
-        label="Full Test Acc after Ascent",
+        label=f"Full Test Acc after {phase_name}",
     )
     axes[1, 1].plot(
         epochs,
@@ -1144,6 +1153,32 @@ def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_ga_stepwise(history: Dict[str, List[float]], output_path: Path) -> None:
+    """Plot GA before/after-repair trajectories so failed forgetting can be diagnosed directly."""
+
+    plot_stepwise_diagnostics(
+        history=history,
+        output_path=output_path,
+        method_title="Gradient Ascent",
+        phase_name="Ascent",
+        objective_key="forget_objective",
+        objective_label="Forget CE",
+    )
+
+
+def plot_rl_stepwise(history: Dict[str, List[float]], output_path: Path) -> None:
+    """Plot RL before/after-repair trajectories so wrong-label forgetting can be diagnosed directly."""
+
+    plot_stepwise_diagnostics(
+        history=history,
+        output_path=output_path,
+        method_title="Random Label",
+        phase_name="Wrong-Label",
+        objective_key="forget_wrong_loss",
+        objective_label="Wrong-Label CE",
+    )
 
 
 def main() -> None:
@@ -1289,6 +1324,8 @@ def main() -> None:
     )
     save_history_table(getattr(ga_model, "unlearning_history"), GA_STEPWISE_CSV)
     plot_ga_stepwise(getattr(ga_model, "unlearning_history"), GA_STEPWISE_FIGURE)
+    save_history_table(getattr(rl_model, "unlearning_history"), RL_STEPWISE_CSV)
+    plot_rl_stepwise(getattr(rl_model, "unlearning_history"), RL_STEPWISE_FIGURE)
 
     print(f"\n[artifacts] saved {ORIGINAL_CHECKPOINT}")
     print(f"[artifacts] saved {RETRAIN_CHECKPOINT}")
@@ -1296,6 +1333,8 @@ def main() -> None:
     print(f"[artifacts] saved {RESULTS_FIGURE}")
     print(f"[artifacts] saved {GA_STEPWISE_CSV}")
     print(f"[artifacts] saved {GA_STEPWISE_FIGURE}")
+    print(f"[artifacts] saved {RL_STEPWISE_CSV}")
+    print(f"[artifacts] saved {RL_STEPWISE_FIGURE}")
 
 
 if __name__ == "__main__":
