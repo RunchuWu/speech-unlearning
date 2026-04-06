@@ -261,7 +261,7 @@ def preprocess_waveform(
 
 
 def load_records_by_speaker(root: Path) -> Tuple[Dict[int, List[AudioRecord]], Dict[int, int]]:
-    """Load the requested speakers from LibriSpeech and cache them as in-memory MFCC records."""
+    """Load every available utterance for the requested speakers as in-memory MFCC records."""
 
     root.mkdir(parents=True, exist_ok=True)
     dataset = torchaudio.datasets.LIBRISPEECH(
@@ -291,18 +291,11 @@ def load_records_by_speaker(root: Path) -> Tuple[Dict[int, List[AudioRecord]], D
                 f"below the requested quota of {SAMPLES_PER_SPEAKER}."
             )
 
-        selected_count = min(SAMPLES_PER_SPEAKER, len(items))
-        if selected_count == 0:
+        if len(items) == 0:
             raise ValueError(f"Speaker {speaker_id} has no utterances in {LIBRISPEECH_SPLIT}.")
 
-        if selected_count < SAMPLES_PER_SPEAKER:
-            print(
-                f"[data] Speaker {speaker_id} has only {selected_count} utterances in {LIBRISPEECH_SPLIT}; "
-                "using all available examples."
-            )
-
         speaker_records: List[AudioRecord] = []
-        for chapter_id, utterance_id, waveform, sample_rate in items[:selected_count]:
+        for chapter_id, utterance_id, waveform, sample_rate in items:
             sample_id = f"{speaker_id}-{chapter_id}-{utterance_id:04d}"
             features = preprocess_waveform(waveform, sample_rate, mfcc_transform, resamplers)
             speaker_records.append(
@@ -316,6 +309,25 @@ def load_records_by_speaker(root: Path) -> Tuple[Dict[int, List[AudioRecord]], D
         records_by_speaker[speaker_id] = speaker_records
 
     return records_by_speaker, availability
+
+
+def partition_benchmark_records(
+    all_records_by_speaker: Dict[int, List[AudioRecord]]
+) -> Tuple[Dict[int, List[AudioRecord]], Dict[int, List[AudioRecord]]]:
+    """Split each speaker's full pool into the benchmark subset and any extra unseen utterances."""
+
+    benchmark_records_by_speaker: Dict[int, List[AudioRecord]] = {}
+    extra_records_by_speaker: Dict[int, List[AudioRecord]] = {}
+    for speaker_id, records in all_records_by_speaker.items():
+        selected_count = min(SAMPLES_PER_SPEAKER, len(records))
+        if selected_count < SAMPLES_PER_SPEAKER:
+            print(
+                f"[data] Speaker {speaker_id} has only {selected_count} utterances in {LIBRISPEECH_SPLIT}; "
+                "using all available examples."
+            )
+        benchmark_records_by_speaker[speaker_id] = list(records[:selected_count])
+        extra_records_by_speaker[speaker_id] = list(records[selected_count:])
+    return benchmark_records_by_speaker, extra_records_by_speaker
 
 
 def flatten_records(records_by_speaker: Dict[int, List[AudioRecord]]) -> List[AudioRecord]:
@@ -375,8 +387,11 @@ def split_retain_pool(
     return retain_train, retain_test, mia_holdout
 
 
-def build_speaker_scenario(records_by_speaker: Dict[int, List[AudioRecord]]) -> ScenarioSplit:
-    """Build scenario 1 where the forget set is every benchmark sample from speaker 1089."""
+def build_speaker_scenario(
+    records_by_speaker: Dict[int, List[AudioRecord]],
+    extra_records_by_speaker: Dict[int, List[AudioRecord]],
+) -> ScenarioSplit:
+    """Build scenario 1 with a same-speaker MIA holdout so MIA measures membership, not speaker shift."""
 
     forget_records = list(records_by_speaker[FORGET_SPEAKER_ID])
     retain_records = [
@@ -391,7 +406,17 @@ def build_speaker_scenario(records_by_speaker: Dict[int, List[AudioRecord]]) -> 
         test_fraction=FORGET_TEST_FRACTION,
         seed=SEED,
     )
-    retain_train, retain_test, mia_holdout = split_retain_pool(retain_records, seed=SEED + 10)
+    retain_train, retain_test = split_records(
+        retain_records,
+        test_fraction=RETAIN_TEST_FRACTION,
+        seed=SEED + 10,
+    )
+    mia_holdout = list(extra_records_by_speaker[FORGET_SPEAKER_ID])
+    if not mia_holdout:
+        raise ValueError(
+            "Scenario 1 requires extra unseen forget-speaker utterances for a matched MIA holdout. "
+            "Lower SAMPLES_PER_SPEAKER or choose a speaker with more available utterances."
+        )
 
     return ScenarioSplit(
         name="Scenario 1",
@@ -1193,13 +1218,14 @@ def main() -> None:
     print(f"[setup] LibriSpeech split={LIBRISPEECH_SPLIT}")
     print(f"[setup] target speakers={SPEAKER_IDS}")
 
-    records_by_speaker, availability = load_records_by_speaker(DATA_ROOT)
+    all_records_by_speaker, availability = load_records_by_speaker(DATA_ROOT)
+    records_by_speaker, extra_records_by_speaker = partition_benchmark_records(all_records_by_speaker)
     actual_counts = {speaker_id: len(records_by_speaker[speaker_id]) for speaker_id in SPEAKER_IDS}
     print(f"[data] available utterances per speaker={availability}")
     print(f"[data] benchmark utterances per speaker={actual_counts}")
     print(f"[data] total benchmark utterances={sum(actual_counts.values())}")
 
-    scenario_1 = build_speaker_scenario(records_by_speaker)
+    scenario_1 = build_speaker_scenario(records_by_speaker, extra_records_by_speaker)
     scenario_2 = build_sample_scenario(records_by_speaker)
     validate_scenario(scenario_1)
     validate_scenario(scenario_2)
@@ -1313,6 +1339,8 @@ def main() -> None:
     results_df.to_csv(RESULTS_CSV)
     print("\nResults Summary")
     print(format_results_table(results_df).to_string())
+    print("[note] For MIA AUC, values closer to 0.5 mean the loss-based attack is closer to random guessing.")
+    print("[note] Values below 0.5 mean the chosen score direction separates the sets in the opposite direction.")
 
     plot_results(
         original_history=original_history,
