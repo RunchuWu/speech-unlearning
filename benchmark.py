@@ -32,6 +32,8 @@ from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix, roc_auc_sc
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 
+from models.audio_cnn import TinySpeakerCNN
+
 try:
     import torchaudio
     import torchaudio.transforms as T
@@ -138,40 +140,6 @@ class RecordDataset(Dataset):
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         record = self.records[index]
         return record.features, record.label
-
-
-class TinySpeakerCNN(nn.Module):
-    """Tiny 3-block CNN that matches the requested [B, 1, 40, 125] MFCC input shape."""
-
-    def __init__(self, num_classes: int = len(SPEAKER_IDS)):
-        super().__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-        )
-        self.pool = nn.AdaptiveAvgPool2d((4, 4))
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 4 * 4, 128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, num_classes),
-        )
-
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        x = self.features(inputs)
-        x = self.pool(x)
-        return self.classifier(x)
 
 
 def set_seed(seed: int) -> None:
