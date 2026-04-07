@@ -14,6 +14,7 @@ Outputs saved to artifacts/celebrity/
     results.png
     before_after_tsne.png  (if evaluation/visualization.py is present)
     parameter_change_<method>.png
+    models/*.pt
 """
 
 from __future__ import annotations
@@ -63,6 +64,7 @@ from evaluation import (
 REPO_ROOT = Path(__file__).resolve().parent
 DATA_DIR = REPO_ROOT / "data" / "celebrity"
 ARTIFACT_DIR = REPO_ROOT / "artifacts" / "celebrity"
+MODEL_DIR = ARTIFACT_DIR / "models"
 
 NUM_CLASSES = len(ALL_CELEBRITIES)  # 5
 BATCH_SIZE = 16
@@ -207,6 +209,15 @@ def clone_model(source: nn.Module, num_classes: int = NUM_CLASSES) -> TinySpeake
     return m
 
 
+def _checkpoint_payload(model: nn.Module) -> Dict:
+    return {
+        "model_type": "audio_cnn",
+        "num_classes": NUM_CLASSES,
+        "label_names": ALL_CELEBRITIES,
+        "state_dict": {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()},
+    }
+
+
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
@@ -261,6 +272,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     print(f"[benchmark] device={device}")
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     # ---- Download (optional) ----
     if args.download:
@@ -409,6 +421,13 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     # ---- Plots ----
     _save_results_plot(df, ARTIFACT_DIR / "results.png")
+    _save_model_checkpoints(
+        original_model,
+        oracle_model,
+        unlearned_models,
+        sisa_models,
+        MODEL_DIR,
+    )
     _save_parameter_change_plots(
         original_model,
         {"Oracle": oracle_model, **{k.replace("_", " ").title(): v for k, v in unlearned_models.items()}},
@@ -475,6 +494,38 @@ def _save_results_plot(df: pd.DataFrame, out_path: Path) -> None:
         print(f"[benchmark] plot saved to {out_path}")
     except Exception as exc:
         print(f"[benchmark] WARN: could not save results plot: {exc}")
+
+
+def _save_model_checkpoints(
+    original_model: nn.Module,
+    oracle_model: nn.Module,
+    unlearned_models: Dict[str, nn.Module],
+    sisa_models: List[nn.Module],
+    out_dir: Path,
+) -> None:
+    checkpoints = {
+        "original.pt": _checkpoint_payload(original_model),
+        "oracle.pt": _checkpoint_payload(oracle_model),
+    }
+
+    for method_name, model in unlearned_models.items():
+        checkpoints[f"{method_name}.pt"] = _checkpoint_payload(model)
+
+    checkpoints["sisa.pt"] = {
+        "model_type": "audio_sisa_ensemble",
+        "num_classes": NUM_CLASSES,
+        "label_names": ALL_CELEBRITIES,
+        "num_shards": len(sisa_models),
+        "shard_state_dicts": [
+            {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()}
+            for model in sisa_models
+        ],
+    }
+
+    for filename, payload in checkpoints.items():
+        path = out_dir / filename
+        torch.save(payload, path)
+        print(f"[benchmark] checkpoint saved to {path}")
 
 
 def _save_parameter_change_plots(
