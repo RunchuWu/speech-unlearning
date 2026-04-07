@@ -9,6 +9,11 @@ from .celebrity_loader import (
     load_celebrity_records,
     build_celebrity_scenario,
 )
+from .face_loader import (
+    MultimodalRecord,
+    extract_face_frames,
+    load_multimodal_records,
+)
 
 __all__ = [
     "CelebRecord",
@@ -20,4 +25,7 @@ __all__ = [
     "download_celebrity_clips",
     "load_celebrity_records",
     "build_celebrity_scenario",
+    "MultimodalRecord",
+    "extract_face_frames",
+    "load_multimodal_records",
 ]
