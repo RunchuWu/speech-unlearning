@@ -50,8 +50,9 @@ CELEBRITY_LABEL: Dict[str, int] = {name: idx for idx, name in enumerate(ALL_CELE
 
 # ---------------------------------------------------------------------------
 # Manifest
-# Each entry: (youtube_url, start_time, end_time)  — times as "MM:SS" strings
-# These are illustrative placeholders; fill in real URLs before running.
+# Each entry: (youtube_url, start_time, end_time) — times as "MM:SS" strings.
+# Curate sources with docs/celebrity_data_protocol.md and track candidates with
+# docs/celebrity_manifest_template.csv before copying approved rows here.
 # ---------------------------------------------------------------------------
 
 CELEBRITY_MANIFEST: Dict[str, List[Tuple[str, str, str]]] = {

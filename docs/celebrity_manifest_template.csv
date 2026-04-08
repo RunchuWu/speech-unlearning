@@ -1,0 +1,6 @@
+speaker,sample_id,source_url,source_id,source_type,start_time,end_time,duration_sec,split_group,quality_tier,overlap_speech,background_noise,duplicate_group,has_video,notes
+trump,trump_0001,https://example.com/watch?v=replace_me,replace_me,speech,00:10,00:12,2.0,trump__replace_me,A,none,low,,yes,Replace with a real public source
+biden,biden_0001,https://example.com/watch?v=replace_me,replace_me,interview,01:20,01:22,2.0,biden__replace_me,A,none,low,,yes,Replace with a real public source
+obama,obama_0001,https://example.com/watch?v=replace_me,replace_me,speech,02:05,02:07,2.0,obama__replace_me,A,none,low,,yes,Replace with a real public source
+harris,harris_0001,https://example.com/watch?v=replace_me,replace_me,debate,03:40,03:42,2.0,harris__replace_me,B,mild,medium,,yes,Replace with a real public source
+sanders,sanders_0001,https://example.com/watch?v=replace_me,replace_me,rally,04:15,04:17,2.0,sanders__replace_me,A,none,medium,,yes,Replace with a real public source

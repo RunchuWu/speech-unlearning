@@ -60,6 +60,8 @@ speech-unlearning/
 
 ## Celebrity Benchmark Setup
 
+- Follow `docs/celebrity_data_protocol.md` before curating real celebrity clips.
+- Start curation from `docs/celebrity_manifest_template.csv`, then translate approved rows into `CELEBRITY_MANIFEST` or prepared WAV files.
 - Install dependencies from `requirements.txt`.
 - Add celebrity WAV clips under `data/celebrity/trump/`, `data/celebrity/biden/`, `data/celebrity/obama/`, `data/celebrity/harris/`, and `data/celebrity/sanders/`.
 - Or fill `CELEBRITY_MANIFEST` in `data_pipeline/celebrity_loader.py` and run `python3 celebrity_benchmark.py --download`.
